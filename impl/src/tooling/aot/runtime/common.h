@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <stdarg.h>
+#include <math.h>
 
 #include <string>
 #include <iostream>
@@ -26,9 +27,9 @@
 #include <numeric>
 
 #ifdef BDEBUG
-#define BSQ_ASSERT(C, MSG) if(!C) { throw BSQAbort(MSG, __FILE__, __LINE__, __FILE__, __LINE__); }
+#define BSQ_ASSERT(C, MSG) if(!(C)) { throw BSQAbort(MSG, __FILE__, __LINE__, __FILE__, __LINE__); }
 #else
-#define BSQ_ASSERT(C, MSG) if(!C) { throw BSQAbort(); }
+#define BSQ_ASSERT(C, MSG) if(!(C)) { throw BSQAbort(); }
 #endif
 
 #ifdef BDEBUG

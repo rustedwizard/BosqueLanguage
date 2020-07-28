@@ -13,7 +13,7 @@ let platpathcpp: string | undefined = undefined;
 let platpathsmt: string | undefined = undefined;
 let platexe: string | undefined = undefined;
 if (process.platform === "win32") {
-    platpathcpp = "\"C:\\Program Files\\LLVM\\bin\\clang.exe\"";
+    platpathcpp = "clang.exe";
     platpathsmt = "bin/win/z3.exe";
     platexe = "doit.exe";
 }
@@ -377,12 +377,14 @@ class TestRunner {
 function runAll() {
     const runner = new TestRunner();
 
+    runner.loadTestSet("doc_examples");
+    runner.loadTestSet("apps");
+    
     //runner.loadTestSet("expression");
     //runner.loadTestSet("types");
     //runner.loadTestSet("statement");
     
     runner.loadTestSet("library");
-    runner.loadTestSet("doc_examples");
 
     runner.run();
 }

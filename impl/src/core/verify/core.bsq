@@ -181,7 +181,7 @@ struct entity Float64 provides Parsable, PODType, APIType, Some {
     static parse(str: String): Float64 # float64_parse
 
     method toInt(): Int # float_toint
-    
+
     method isInfinite(): Bool # float64_isinfinity
     method isNan(): Bool # float64_isnan
 

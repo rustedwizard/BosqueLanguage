@@ -431,7 +431,7 @@ class CPPTypeEmitter {
             else if (trfrom.base === "int64_t") {
                 cc = `BSQ_ENCODE_VALUE_TAGGED_INT(${exp})`;
             }
-            else if (trfrom.base === "BSQEnum" || trfrom.base === "BSQIdKeySimple" || trfrom.base === "BSQIdKeyCompound") {
+            else if (trfrom.base === "double" || trfrom.base === "BSQEnum" || trfrom.base === "BSQIdKeySimple" || trfrom.base === "BSQIdKeyCompound") {
                 const scope = this.mangleStringForCpp("$scope$");
                 const ops = this.getFunctorsForType(from);
                 cc = `BSQ_NEW_ADD_SCOPE(${scope}, ${trfrom.boxed}, ${trfrom.nominaltype}, ${ops.inc}{}(${exp}))`;
@@ -472,7 +472,7 @@ class CPPTypeEmitter {
                 }
                 else {
                     if(trinto.base === "BSQTuple" || trinto.base === "BSQRecord") {
-                        return `*${exp}`
+                        return `*(BSQ_GET_VALUE_PTR(${exp}, ${trinto.base}))`;
                     }
                     else {
                         return `BSQ_GET_VALUE_PTR(${exp}, ${trinto.boxed})->bval`;
@@ -499,7 +499,7 @@ class CPPTypeEmitter {
                 }
                 else {
                     if(trinto.base === "BSQTuple" || trinto.base === "BSQRecord") {
-                        return `*${exp}`
+                        return `*(BSQ_GET_VALUE_PTR(${exp}, ${trinto.base}))`;
                     }
                     else {
                         return `BSQ_GET_VALUE_PTR(${exp}, ${trinto.boxed})->bval`;
@@ -601,7 +601,15 @@ class CPPTypeEmitter {
                 return "ephemeral";
             }
             else if (tr instanceof StructRepr) {
-                return "ops";
+                if(!this.assembly.entityDecls.has(tt.trkey)) {
+                    return "ops";
+                }
+                else {
+                    const sfields = (this.assembly.entityDecls.get(tt.trkey) as MIREntityTypeDecl).fields;
+                    const allnorc = sfields.every((fd) => this.getRefCountableStatus(this.getMIRType(fd.declaredType)) === "no");
+
+                    return allnorc ? "no" : "ops";
+                }
             }
             else if (tr instanceof RefRepr) {
                 return "direct";
@@ -615,7 +623,7 @@ class CPPTypeEmitter {
     buildIncOpForType(tt: MIRType, arg: string): string {
         const rcinfo = this.getRefCountableStatus(tt);
         if (rcinfo === "no") {
-            return arg;
+            return "";
         }
         else {
             const tr = this.getCPPReprFor(tt);
@@ -628,7 +636,7 @@ class CPPTypeEmitter {
                 return `INC_REF_CHECK(${tr.base}, ${arg})`;
             }
             else {
-                return `RCIncFunctor_${tr.base}{}(${arg})`
+                return `RCIncFunctor_${tr.base}{}(${arg})`;
             }
         }
     }
@@ -636,21 +644,21 @@ class CPPTypeEmitter {
     buildReturnOpForType(tt: MIRType, arg: string, scope: string): string {
         const rcinfo = this.getRefCountableStatus(tt);
         if (rcinfo === "no") {
-            return ";";
+            return "";
         }
         else {
             const tr = this.getCPPReprFor(tt);
             if (rcinfo === "ephemeral") {
-                return `(${arg}).processForCallReturn(${scope});`;
+                return `(${arg}).processForCallReturn(${scope})`;
             }
             else if (rcinfo === "direct") {
-                return `${scope}.callReturnDirect(${arg});`;
+                return `${scope}.callReturnDirect(${arg})`;
             }
             else if (rcinfo === "checked") {
-                return `${scope}.processReturnChecked(${arg});`;
+                return `${scope}.processReturnChecked(${arg})`;
             }
             else {
-                return `RCReturnFunctor_${tr.base}{}(${arg}, ${scope});`
+                return `RCReturnFunctor_${tr.base}{}(${arg}, ${scope})`;
             }
         }
     }
@@ -688,7 +696,7 @@ class CPPTypeEmitter {
                 return { inc: `RCIncFunctor_${tr.base}`, dec: `RCDecFunctor_${tr.base}`, ret: `RCReturnFunctor_${tr.base}`, eq: `EqualFunctor_${tr.base}`, less: `LessFunctor_${tr.base}`, display: `DisplayFunctor_${tr.base}` };
             }
             else {
-                return { inc: "RCIncFunctor_BSQRef", dec: "RCDecFunctor_BSQRef", ret: "[INVALID_RET]", eq: "[INVALID_EQ]", less: "[INVALID_LESS]", display: "DisplayFunctor_BSQRef" };
+                return { inc: `RCIncFunctor_BSQRef<${tr.base}>`, dec: "RCDecFunctor_BSQRef", ret: "[INVALID_RET]", eq: "[INVALID_EQ]", less: "[INVALID_LESS]", display: "DisplayFunctor_BSQRef" };
             }
         }
         else {
@@ -821,7 +829,7 @@ class CPPTypeEmitter {
         const crepr = this.getCPPReprFor(typet);
 
         const cops = this.getFunctorsForType(typet);
-        const bc = `BSQSet<${crepr.std}, ${cops.dec}, ${cops.display}, ${cops.eq}, ${cops.less}>`;
+        const bc = `BSQSet<${crepr.std}, ${cops.dec}, ${cops.display}, ${cops.less}, ${cops.eq}>`;
         const decl = `class ${declrepr.base} : public ${bc}\n`
         + "{\n"
         + "public:\n"
@@ -845,7 +853,7 @@ class CPPTypeEmitter {
         const kops = this.getFunctorsForType(typek);
         const vops = this.getFunctorsForType(typev);
 
-        const bc = `BSQMap<${krepr.std}, ${kops.dec}, ${kops.display}, ${kops.eq}, ${kops.less}, ${vrepr.std}, ${vops.dec}, ${vops.display}>`;
+        const bc = `BSQMap<${krepr.std}, ${kops.dec}, ${kops.display}, ${kops.less}, ${kops.eq}, ${vrepr.std}, ${vops.dec}, ${vops.display}>`;
         const decl = `class ${declrepr.base} : public ${bc}\n`
         + "{\n"
         + "public:\n"
@@ -857,7 +865,7 @@ class CPPTypeEmitter {
         return { isref: true, fwddecl: `class ${declrepr.base};`, fulldecl: decl };
     }
 
-    generateCPPEntity(entity: MIREntityTypeDecl): { isref: boolean, fwddecl: string, fulldecl: string } | { isref: boolean, fwddecl: string, fulldecl: string, boxeddecl: string, ops: string[] } | undefined {
+    generateCPPEntity(entity: MIREntityTypeDecl): { isref: boolean, fwddecl: string, fulldecl: string, displayimpl?: string } | { isref: boolean, fwddecl: string, fulldecl: string, boxeddecl: string, ops: string[], displayimpl?: string } | undefined {
         const tt = this.getMIRType(entity.tkey);
 
         if(this.isSpecialReprEntity(tt)) {
@@ -894,7 +902,8 @@ class CPPTypeEmitter {
 
             const faccess = entity.fields.map((f) => this.coerce(`this->${this.mangleStringForCpp(f.fkey)}`, this.getMIRType(f.declaredType), this.anyType));
             const fjoins = faccess.length !== 0 ? faccess.map((fa) => `diagnostic_format(${fa})`).join(" + std::string(\", \") + ") : "\" \"";
-            const display = "std::string display() const\n"
+            const display = "std::string display() const;"
+            const displayimpl = `std::string ${this.mangleStringForCpp(entity.tkey)}::display() const\n`
                 + "    {\n"
                 + `        BSQRefScope ${this.mangleStringForCpp("$scope$")};\n`
                 + `        return std::string("${entity.tkey}{ ") + ${fjoins} + std::string(" }");\n`
@@ -923,43 +932,23 @@ class CPPTypeEmitter {
                         + `    virtual ~${this.mangleStringForCpp(entity.tkey)}() { ; }\n\n`
                         + `    virtual void destroy() { ${destructor_list.join(" ")} }\n\n`
                         + `    ${display}\n`
-                        + "};"
+                        + "};",
+                    displayimpl: displayimpl
                     };
             }
             else {
-                const copy_constructor_initializer = entity.fields.map((fd) => {
-                    return `${this.mangleStringForCpp(fd.fkey)}(src.${this.mangleStringForCpp(fd.fkey)})`;
-                });
-                const copy_cons = `${this.mangleStringForCpp(entity.tkey)}(const ${this.mangleStringForCpp(entity.tkey)}& src) ${copy_constructor_initializer.length !== 0 ? ":" : ""} ${copy_constructor_initializer.join(", ")} { ; }`;
+                const copy_cons = `${this.mangleStringForCpp(entity.tkey)}(const ${this.mangleStringForCpp(entity.tkey)}& src) = default;`;
+                const move_cons = `${this.mangleStringForCpp(entity.tkey)}(${this.mangleStringForCpp(entity.tkey)}&& src) = default;`;
+                
+                const copy_assign = `${this.mangleStringForCpp(entity.tkey)}& operator=(const ${this.mangleStringForCpp(entity.tkey)}& src) = default;`;
+                const move_assign = `${this.mangleStringForCpp(entity.tkey)}& operator=(${this.mangleStringForCpp(entity.tkey)}&& src) = default;`;
 
-                const move_constructor_initializer = entity.fields.map((fd) => {
-                    return `${this.mangleStringForCpp(fd.fkey)}(std::move(src.${this.mangleStringForCpp(fd.fkey)}))`;
-                });
-                const move_cons = `${this.mangleStringForCpp(entity.tkey)}(${this.mangleStringForCpp(entity.tkey)}&& src) ${move_constructor_initializer.length !== 0 ? ":" : ""} ${move_constructor_initializer.join(", ")} { ; }`;
+                const incop_ops = entity.fields
+                    .filter((fd) => this.getRefCountableStatus(this.getMIRType(fd.declaredType)) !== "no")
+                    .map((fd) => {
+                        return this.buildIncOpForType(this.getMIRType(fd.declaredType), `tt.${this.mangleStringForCpp(fd.fkey)}`) + ";";
+                    });
 
-                const copy_assign_ops = entity.fields.map((fd) => {
-                    return `this->${this.mangleStringForCpp(fd.fkey)} = src.${this.mangleStringForCpp(fd.fkey)};`;
-                });
-                const copy_assign = `${this.mangleStringForCpp(entity.tkey)}& operator=(const ${this.mangleStringForCpp(entity.tkey)}& src)`
-                + `{\n`
-                + `  if (this == &src) return *this;\n\n  `
-                + copy_assign_ops.join("\n  ")
-                + `return *this;\n`
-                + `}\n`;
-
-                const move_assign_ops = entity.fields.map((fd) => {
-                    return `this->${this.mangleStringForCpp(fd.fkey)} = std::move(src.${this.mangleStringForCpp(fd.fkey)});`;
-                });
-                const move_assign = `${this.mangleStringForCpp(entity.tkey)}& operator=(${this.mangleStringForCpp(entity.tkey)}&& src)`
-                + `{\n`
-                + `  if (this == &src) return *this;\n\n  `
-                +  move_assign_ops.join("\n  ")
-                + `return *this;\n`
-                + `}\n`;
-
-                const incop_ops = entity.fields.map((fd) => {
-                    return this.buildIncOpForType(this.getMIRType(fd.declaredType), `tt.${this.mangleStringForCpp(fd.fkey)}`) + ";";
-                });
                 const incop = `struct RCIncFunctor_${this.mangleStringForCpp(entity.tkey)}`
                 + `{\n`
                 + `  inline ${this.mangleStringForCpp(entity.tkey)} operator()(${this.mangleStringForCpp(entity.tkey)} tt) const\n` 
@@ -991,9 +980,9 @@ class CPPTypeEmitter {
                 + `  }\n`
                 + `};\n`;
 
-                const displayop = `struct RCDisplayFunctor_${this.mangleStringForCpp(entity.tkey)}`
+                const displayop = `struct DisplayFunctor_${this.mangleStringForCpp(entity.tkey)}`
                 + `{\n`
-                + `  std::string operator()(${this.mangleStringForCpp(entity.tkey)}& tt) const\n` 
+                + `  std::string operator()(const ${this.mangleStringForCpp(entity.tkey)}& tt) const\n` 
                 + `  {\n` 
                 + `    return tt.display();`
                 + `  }\n`
@@ -1018,14 +1007,15 @@ class CPPTypeEmitter {
                         + "{\n"
                         + "public:\n"
                         + `    Boxed_${this.mangleStringForCpp(entity.tkey)}(const ${this.mangleStringForCpp(entity.tkey)}& bval) : BSQBoxedObject(MIRNominalTypeEnum::${this.mangleStringForCpp(entity.tkey)}, bval) { ; }\n`
-                        + `    std::string display() const {return this->bval.display(); }\n\n`
+                        + `    std::string display() const;\n\n`
                         + "};",
                     ops: [
                         incop,
                         decop,
                         returnop,
                         displayop
-                    ]
+                    ],
+                    displayimpl: displayimpl + "\n" + `std::string Boxed_${this.mangleStringForCpp(entity.tkey)}::display() const {return this->bval.display(); }`
                     };
             }
         }
@@ -1062,11 +1052,17 @@ class CPPTypeEmitter {
             constructor_initializer.push(`entry_${i}(e${i})`);
         }
 
+        const copy_cons = `${this.mangleStringForCpp(tt.trkey)}(const ${this.mangleStringForCpp(tt.trkey)}& src) = default;`;
+        const move_cons = `${this.mangleStringForCpp(tt.trkey)}(${this.mangleStringForCpp(tt.trkey)}&& src) = default;`;
+
+        const copy_assign = `${this.mangleStringForCpp(tt.trkey)}& operator=(const ${this.mangleStringForCpp(tt.trkey)}& src) = default;`;
+        const move_assign = `${this.mangleStringForCpp(tt.trkey)}& operator=(${this.mangleStringForCpp(tt.trkey)}&& src) = default;`;
+
         const fjoins = displayvals.map((dv) => `diagnostic_format(${dv})`).join(" + std::string(\", \") + ");
         const display = "std::string display() const\n"
             + "    {\n"
             + `        BSQRefScope ${this.mangleStringForCpp("$scope$")};\n`
-            + `        return std::string("(|) ") + ${fjoins} + std::string(" |)");\n`
+            + `        return std::string("(| ") + ${fjoins} + std::string(" |)");\n`
             + "    }";
 
         const processForCallReturn = "void processForCallReturn(BSQRefScope& scope)\n"
@@ -1080,6 +1076,10 @@ class CPPTypeEmitter {
             + `    ${fields.join("\n    ")}\n\n`
             + `    ${this.mangleStringForCpp(tt.trkey)}() { ; }\n\n`
             + `    ${this.mangleStringForCpp(tt.trkey)}(${constructor_args.join(", ")}) : ${constructor_initializer.join(", ")} { ; }\n\n`
+            + `    ${copy_cons}\n`
+            + `    ${move_cons}\n`
+            + `    ${copy_assign}\n`
+            + `    ${move_assign}\n`
             + `    ${display}\n\n`
             + `    ${processForCallReturn}\n`
             + "};"

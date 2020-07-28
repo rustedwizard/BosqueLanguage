@@ -2,7 +2,7 @@
 
 The Bosque language derives from a combination of [TypeScript](https://www.typescriptlang.org/) inspired syntax and types plus [ML](https://www.smlnj.org/) and [Node/JavaScript](https://nodejs.org/en/) inspired semantics. This document provides an overview of the syntax, operations, and semantics in the Bosque language with an emphasis on the distinctive or unusual features in the language.
 
-_[Due to recent language updates some of this documentation is slightly out of date. We are working to get everything back in sync but please open issues as needed.]_
+**[Due to recent language updates some of this documentation is slightly out of date. We are working to get everything back in sync but please open issues as needed.]**
 
 # Table of Contents
 
@@ -131,7 +131,27 @@ let q = np(...r);         //returns {x=1, y=2} -- same as explicit call
 In addition to allowing multiple assignments to variables and multi-return values, the Bosque language also allows developers to thread parameters via `ref` argument passing. This alternative to multi-return values simplifies scenarios where a variable (often some sort of environment) is passed to a method which may use and update it. Allowing the update in the parameter eliminates the extra return value management that would otherwise be needed:
 
 ```none
-function internString(ref env: Map<String, Int>, str: String): Int {
+function next(ref ctr: Int): Int {
+    let res = ctr;
+    ctr = ctr + 1;
+    return res;
+}
+
+...
+var ctr = 0;
+let v1 = next(ref ctr);
+let v2 = next(ref ctr);
+
+_debug(ctr); //2
+_debug(v1);  //0
+_debug(v2);  //1
+```
+
+A more realistic example, with a more complex environment, for interning strings to `Int` identifiers is:
+**[TODO: needs DynamicMap and Test]**
+
+```none
+function internString(ref env: DynamicMap<String, Int>, str: String): Int {
     if(env.has(str)) {              //use the ref parameter
         return env.get(str);
     }
@@ -142,15 +162,23 @@ function internString(ref env: Map<String, Int>, str: String): Int {
 
 
 ...
-let nameid = internString(ref env, "hello");
+var env = Map<String, Int>@{};
+let nameid1 = internString(ref env, "hello");
+let nameid2 = internString(ref env, "goodbye");
+
+_debug(env->toList()); //List<[String, Int]>@{ ["hello", 0], ["goodbye", 1] }
+
 ```
 
 ## <a name="0.5-Typed-Strings"></a>0.5 Typed Strings
 
 Bosque provides two flavors of typed strings, `SafeString<T>` and `StringOf<T>`, to address various scenarios where including meta-data about the string in the type is useful. 
 
-The `SafeString<T>` type is parameterized with a `Validator` regular expression type which describes the language that the string belongs to. This supports concise representation of many common string structures seen in a program, particularly at API call parameters, in a way that does not require exposing details of the program. 
-```
+The `SafeString<T>` type is parameterized with a `Validator` regular expression type which describes the language that the string belongs to. This supports concise representation of many common string structures seen in a program, particularly at API call parameters, in a way that does not require exposing details of the program.
+
+**[TODO: needs Regex fully implemented and tests -- may also want to change the example a bit]**
+
+```none
 typedef SizeFormat = /(\d)+(em|px)/; //declare Validator type the size formats
 
 entrypoint function convertToPX(size: SafeString<SizeFormat>): Int {
@@ -172,7 +200,10 @@ function convertEMToPX(emsize: Int): Int {
 ```
 
 The `StringOf<T>` type is much richer at the cost of using customized logic and exposing internal information from the codebase. It is parameterized by any type implementing the `Parsable` concept. The contents of the string are then restricted to the language of strings accepted by the static `T::tryParse` method -- which may be arbitrarily complex code. This makes them ideal for working with data that comes in a custom format or simply for light validation and then to *tag* strings with a type to avoid confusion in code or APIs with multiple string valued parameters.
-```
+
+**[TODO: needs regex implementation, fill in regex parsing, and test]**
+
+```none
 //Represent an EMail address + specify parsing of format
 entity EMailAddress provides Parsable {
     field local: String;
@@ -237,22 +268,51 @@ Bulk algebraic operations in Bosque start with support for bulk reads and update
 
 ```none
 let x = {f=1, g=2, h=3};
-x.update(f=-1, g=-2); //{f=-1, @g=-2, h=3}
+x.update(f=-1, g=-2); //{f=-1, g=-2, h=3}
 ```
 
 In addition to eliminating opportunities to forget or confuse a field these operators help focus the code on the overall intent, instead of being hidden in the individual steps, and allow a developer to perform algebraic reasoning on the data structure operations. Bosque provides several flavors of these algebraic operations for various data types, tuples, records, and nominal types, and for various operations including projection, multi-update, and merge.
+
+**[TODO: project operation not implemented]**
 
 ```none
 let l = [7, 8, 9];
 let r = {f=7, g=8};
 
-l.[0, 2]               //[7, 9]
-l.merge([5, 6])       //[7, 8, 9, 5, 6]
-l.project<Int, Int>() //[7, 8]
+l.[0, 2]                //[7, 9]
+l.merge([5, 6])         //[7, 8, 9, 5, 6]
+l.project<[Int, Int]>() //[7, 8]
 
-r.{f, h}             //{f=7, h=none}
+r.{f, h}            //{f=7, h=none}
 r.update(f=5, h=1)  //{f=5, g=8, h=1}
 r.merge({f=5, h=1}) //{f=5, g=8, h=1}
+```
+
+These bulk operations also work on entities and concepts (and even with invariant specifications!):
+
+**[TODO: virtual updates and virtual invariants are not implemented]**
+
+**[TODO: tests needed]**
+```none
+concept Person {
+    field name: String;
+
+    invariant $name != "";
+}
+
+entity Worker {
+    field job: String;
+    field hobby: String;
+
+    invariant $job != "";
+}
+
+let bob = Worker@{"bob", "programmer", "golf"};
+
+bob.update(job="manager")                  //Worker@{name="bob", job="manager", hobby="golf"}
+bob.update(job="")                         //invariant error
+bob.{name, hobby}                          //{name="bob", hobby="golf"}
+bob.merge({job="manager", hobby="tennis"}) //Worker@{name="bob", job="manager", hobby="tennis"}
 ```
 
 ## <a name="0.7-None-Processing"></a>0.7 None Processing
@@ -270,13 +330,13 @@ function foo(val?: {tag: Int, value?: String}): String {
 A fundamental concept in a programming language is the iteration construct and a critical question is should this construct be provided as high-level functors, such as filter/map/reduce, or do programmers benefit from the flexibility available with iterative, while or for, looping constructs. To answer this question in a definitive manner the authors of [Mining Semantic Loop Idioms](https://www.microsoft.com/en-us/research/uploads/prod/2018/10/LoopIdioms.pdf) engaged in a study of all the loops "idioms" found in real-world code. The categorization and coverage results showed that almost every loop a developer would want to write falls into a small number of idiomatic patterns which correspond to higher level concepts developers are using in the code, e.g., filter, find, group, map, etc. With this result in mind the Bosque language trades structured loops for a set of high-level iterative processing constructs ([3 Collections](#3-Collections)).
 
 ```none
-let v: List<Int?> = List<Int?>{1, 2, none, 4};
+let v: List<Int?> = List<Int?>@{1, 2, none, 4};
 
-//Chained - List<Int>{1, 4, 16}
-v.filter(fn(x) => x != none).map<Int>(fn(x) => x*x)
+let dd = v.ofType<Int>().map<Int>(fn(x) => x*x);
+_debug(dd); //List<Int>@{1, 4, 16}
 ```
 
-Eliminating the boilerplate of writing the same loops repeatedly eliminates whole classes of errors including, e.g. bounds computations, and makes the intent clear with a descriptively named functor instead of relying on a shared set of mutually known loop patterns. Critically, for enabling automated program validation and optimization, eliminating loops also eliminates the need for computing loop-invariants. Instead, and with a careful design of the collection libraries, it is possible to write precise transformers for each functor. In this case the computation of _strongest-postconditions_ or _weakest-preconditions_ avoids the complexity of generating a loop invariant and instead becomes a simple and deterministic case of formula pushing!
+Eliminating the boilerplate of writing the same loops repeatedly eliminates whole classes of errors including, e.g. bounds computations, and makes the intent clear with a descriptively named functor instead of relying on a shared set of mutually known loop patterns. Critically, for enabling automated program validation and optimization, eliminating loops also eliminates the need for computing loop-invariants. Instead, and with a careful design of the collection libraries, it is possible to write precise transformers for each functor. In this case the computation of _strongest-postconditions_ or _weakest-preconditions_ avoids the complexity of generating a loop invariant and instead becomes a deterministic case of formula pushing!
 
 ## <a name="0.9-Recursion"></a>0.9 Recursion
 
@@ -286,7 +346,7 @@ Thus, Bosque is designed to encourage limited uses of recursion, increase the cl
 
 ## <a name="0.10-Determinacy"></a>0.10 Determinacy
 
-When the behavior of a code block is under-specified the result is code that is harder to reason about and more prone to errors. As a key goal of the Bosque language is to eliminate sources of unneeded complexity that lead to confusion and errors we naturally want to eliminate these under-specified behaviors. Thus, Bosque does not have any _undefined_ behavior such as allowing uninitialized variable reads and eliminates all _under defined_ behavior as well including sorting stability and all associative collections (sets and maps) have a fixed and stable enumeration order.
+When the behavior of a code block is under-specified the result is code that is harder to reason about and more prone to errors. As a key goal of the Bosque language is to eliminate sources of unneeded complexity that lead to confusion and errors we naturally want to eliminate these under-specified behaviors. Thus, Bosque does not have any _undefined_ behavior such as allowing uninitialized variable reads and eliminates all _under defined_ behavior as well including sorting stability and all associative collections (sets and maps) have a fixed and stable enumeration order based on the order of the underlying key values.
 
 As a result of these design choices there is always a single _unique_ and _canonical_ result for any Bosque program. This means that developers will never see intermittent production failures or flaky unit-tests!
 
@@ -300,25 +360,42 @@ In light of these issues the Bosque language does not allow user visible _refere
 
 ```
 identifier UserId = Int;
-composite identifier OwnedResourceId = {owner: UserId, name: String};
-guid identifier GlobalResourceId;
+enum GlobalEnum {
+    local,
+    network
+}
 
 entity Resource {
-    field id: OwnedResourceId | GlobalResourceId;
+    field access: UserId | GlobalEnum;
     field data: String;
 }
 
-function checkAccessForUser(user: UserId, ...resources: List<Resource>): Bool {
-    return resources.all(fn(r) => 
-        switch(r.id) {
-            type DurableOrchestrationContext => true
-            type OwnedResourceId => r.id.owner = user
+function checkAccessForUser(user: UserId, resources: List<Resource>): Bool {
+    return resources.allOf(fn(r) => {
+            let access = r.access;
+            return switch(access) {
+                type GlobalEnum => access == GlobalEnum::local
+                type UserId => access == user
+            };
         }
     );
 }
 
-checkAccessForUser(UserId.create(5), {owner: UserId.create(5), "file1"}) //true
-checkAccessForUser(UserId.create(5), {owner: UserId.create(5), "file1"}, {owner: UserId.create(2), "file2"}) //false
+let user5 = UserId::create(5);
+let user2 = UserId::create(2);
+    
+let resources1 = List<Resource>@{ 
+        Resource@{user5, "file1"},
+        Resource@{GlobalEnum::local, "file2"}
+    };
+
+let resources2 = List<Resource>@{ 
+        Resource@{user5, "file1"},
+        Resource@{user2, "file2"}
+    };
+
+_debug(checkAccessForUser(user5, resources1)); //true
+_debug(checkAccessForUser(user5, resources2)); //false
 ```
 
 The composite key type allows a developer to create a distinct type to represent a composite equality comparable value that provides the notion of equality e.g. identity, primary key, equivalence, etc. that makes sense for their domain. The language also allows types to define a key field that will be used for equality/order by the associative containers in the language ([3 Collections](#3-Collections)).
@@ -338,15 +415,15 @@ entity Foo {
         requires release this.x > 1;   //precondition enabled in release as well as debug
         ensures $return > 0;           //postcondition
     {
-        check this.x - y > 0;   //sanity check - enabled on optimized builds
-        assert this.x + y != y; //diagnostic assert - only for test/debug
+        check this.x - y >= 0;      //sanity check - enabled on optimized builds
+        assert this.x + y > this.x; //diagnostic assert - only for test/debug
 
-        return this.x - y + 1;
+        return this.x - (y + 1);
     }
 }
 ```
 
-The special references `$x` in the invariant and `$return` in the ensures check are instances of *implicit binder* variables in Bosque. These variables serve a number of useful roles. In the case of `$return` the variable provides a way to refer to the implicit return value. Similarly for any input reference parameter `p`, which may be rebound in the body, the variable `$p` can be used to refer to the original value. In the case of the invariant the variable `$x` refers to the value of the field `x` in the about to be created object, i.e., we check the invariants on the fields *before* construction. This choice ensures that at no point in time (or code) an object will be visible/accessible that violates its invariants.
+The special references `$x` in the invariant and `$return` in the ensures check are instances of *implicit binder* variables in Bosque. These variables serve a number of useful roles. In the case of `$return` the variable provides a way to refer to the implicit return value. Similarly for any reference parameter `p`, which may be rebound in the body, the variable `$p` can be used to refer to the original value. In the case of the invariant the variable `$x` refers to the value of the field `x` in the about to be created object, i.e., we check the invariants on the fields *before* construction. This choice ensures that at no point in time (or code) an object will be visible/accessible that violates its invariants.
 
 ## <a name="0.13-Atomic-Constructors-and-Factories"></a>0.13 Atomic Constructors and Factories
 
@@ -358,7 +435,7 @@ However, it is sometimes useful to encapsulate initialization logic and, to acco
 concept Bar {
     field f: Int;
 
-    factory default(): {f: Int} {
+    factory static default(): {f: Int} {
         return {f=1};
     }
 }
@@ -367,16 +444,16 @@ entity Baz provides Bar {
     field g: Int;
     field h: Bool = true;
 
-    factory identity(i: Int): {f: Int, g: Int} {
+    factory static identity(i: Int): {f: Int, g: Int} {
         return {f=i, g=i};
     }
 }
 
-let x = Baz{f=1, g=2};
-let y = Baz{f=1, g=2, h=false};
+let x = Baz@{1, 2};
+let y = Baz@{1, 2, h=false};
 
-let p = Baz@identity(1); //equivalent to Baz{...Baz::identity(1)}
-let q = Baz{...Bar::default(), g=2};
+let p = Baz@identity(1); //equivalent to Baz@{...Baz::identity(1)}
+let q = Baz@{...Bar::default(), g=2};
 ```
 
 In this code the two `Baz` entities are allocated via the atomic initialization constructor. In the first case the omitted `h` field is set to the provided default value of `true`. The `identity` factory defines `f` and `g` values for the entity via the returned record. When invoked with the constructor syntax
@@ -1404,8 +1481,8 @@ In addition to single variable declarations and assignments the Bosque language 
 ```none
 [let x: Int, let y: Int] = [1, 2];               //declare and assign x=1, y=2 (explicit types)
 {f=let x, g=let y} = {f=1, g=2};                 //declare and assign x=1, y=2 (infer types)
-{f=let x, g=@[let y, let z]} = {f=1, g=@[2, 3]}; //declare x=1, y=2, and z=3
-Pair@{f=let x, s=let y} = Pair@{f=1, s=2};       //declare x, y and assign from entity or concept
+{f=let x, g=[let y, let z]} = {f=1, g=[2, 3]}; //declare x=1, y=2, and z=3
+Pair@{f=let x, s=let y} = Pair{f=1, s=2};       //declare x, y and assign from entity or concept
 (|let x, let y|) = foo(5)                        //declare x, y and assign from value pack typed expression
 ```
 
@@ -1477,13 +1554,13 @@ function absy(x?: Int): Int {
         return 0;
     }
 
-    return {
+    return {|
         var y = x;
         if(y < 0) {
             y = -y;
         }
         yield y;
-    }
+    |};
 }
 ```
 

@@ -84,7 +84,7 @@ else if ((Commander.symbolic || Commander.result) !== undefined) {
             process.exit(1);
         }
 
-        const sparams = SMTEmitter.emit(massembly, entrypoint, Commander.symbolic !== undefined);
+        const sparams = SMTEmitter.emit(massembly, entrypoint, Commander.symbolic !== undefined, false);
         const lsrc = FS.readFileSync(smt_runtime).toString();
         const contents = lsrc
         .replace(";;NOMINAL_DECLS_FWD;;", sparams.NOMINAL_DECLS_FWD)
@@ -160,13 +160,13 @@ else {
         + "namespace BSQ\n"
         + "{\n/*forward type decls*/\n"
         + cparams.TYPEDECLS_FWD
+        + "\n\n/*type decls*/\n"
+        + cparams.TYPEDECLS
         + "\n\n/*ephemeral decls*/\n"
         + cparams.EPHEMERAL_LIST_DECLARE
         + "\n\n/*forward vable decls*/\n"
         + "\n\n/*forward function decls*/\n"
         + cparams.FUNC_DECLS_FWD
-        + "\n\n/*type decls*/\n"
-        + cparams.TYPEDECLS
         + "\n\n/*typecheck decls*/\n"
         + cparams.TYPECHECKS
         + "\n\n/*vable decls*/\n"

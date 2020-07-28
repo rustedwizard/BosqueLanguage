@@ -27,7 +27,7 @@ else {
 }
 
 const z3path = Path.normalize(Path.join(__dirname, "../../tooling/bmc/runtime", platpathsmt));
-const compilerpath = (process.platform === "win32") ? "\"C:\\Program Files\\LLVM\\bin\\clang.exe\"" : "clang++";
+const compilerpath = (process.platform === "win32") ? "clang.exe" : "clang++";
 const binext = (process.platform === "win32") ? "exe" : "out";
 
 function checkMASM(files: string[], corelibpath: string, doemit: boolean): boolean {
@@ -132,13 +132,13 @@ function compile(masm: MIRAssembly, wsroot: string, config: any): boolean {
             + "namespace BSQ\n"
             + "{\n/*forward type decls*/\n"
             + cparams.TYPEDECLS_FWD
+            + "\n\n/*type decls*/\n"
+            + cparams.TYPEDECLS
             + "\n\n/*ephemeral decls*/\n"
             + cparams.EPHEMERAL_LIST_DECLARE
             + "\n\n/*forward vable decls*/\n"
             + "\n\n/*forward function decls*/\n"
             + cparams.FUNC_DECLS_FWD
-            + "\n\n/*type decls*/\n"
-            + cparams.TYPEDECLS
             + "\n\n/*typecheck decls*/\n"
             + cparams.TYPECHECKS
             + "\n\n/*vable decls*/\n"
@@ -198,7 +198,7 @@ function verify(masm: MIRAssembly, config: any, genmodel: boolean): [boolean, bo
             return [false, false];
         }
 
-        const sparams = SMTEmitter.emit(masm, entrypoint, true);
+        const sparams = SMTEmitter.emit(masm, entrypoint, true, false);
         const lsrc = FS.readFileSync(smt_runtime).toString();
         const contents = lsrc
             .replace(";;NOMINAL_DECLS_FWD;;", sparams.NOMINAL_DECLS_FWD)

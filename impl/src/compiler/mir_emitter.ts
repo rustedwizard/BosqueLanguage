@@ -76,11 +76,7 @@ class MIRKeyGenerator {
     }
 
     static generatePCodeKey(inv: InvokeDecl): MIRInvokeKey {
-        //
-        //TODO: this might not be great as we leak build environment info into the assembly :(
-        //      maybe we can do a hash of contents + basename (or something similar)?
-        //
-        return `fn--${inv.srcFile}%${inv.sourceLocation.line}%${inv.sourceLocation.column}`;
+        return `fn--${inv.srcFile}+${inv.sourceLocation.line}##${inv.sourceLocation.pos}`;
     }
 }
 
@@ -272,8 +268,8 @@ class MIRBodyEmitter {
         this.m_currentBlock.push(new MIRStructuredExtendObject(sinfo, resultNominalType, arg, argInferType, update, updateInferType, fieldResolves, trgt));
     }
 
-    emitLoadFromEpehmeralList(sinfo: SourceInfo, arg: MIRRegisterArgument, argInferType: MIRResolvedTypeKey, idx: number, trgt: MIRTempRegister) {
-        this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, arg, argInferType, idx, trgt));
+    emitLoadFromEpehmeralList(sinfo: SourceInfo, arg: MIRRegisterArgument, resultType: MIRResolvedTypeKey, argInferType: MIRResolvedTypeKey, idx: number, trgt: MIRTempRegister) {
+        this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, arg, resultType, argInferType, idx, trgt));
     }
 
     emitInvokeFixedFunction(sinfo: SourceInfo, ikey: MIRInvokeKey, args: MIRArgument[], retinfo: [MIRType, MIRType, number, [string, MIRType][]], trgt: MIRTempRegister) {
@@ -285,15 +281,16 @@ class MIRBodyEmitter {
             this.m_currentBlock.push(new MIRInvokeFixedFunction(sinfo, retinfo[1].trkey, ikey, args, rr));
 
             if (retinfo[2] === -1) {
-                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[1].trkey, 0, trgt));
+                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[0].trkey, retinfo[1].trkey, 0, trgt));
             }
             else {
                 this.m_currentBlock.push(new MIRPackSlice(sinfo, rr, retinfo[0].trkey, trgt));
             }
 
+            const refbase = retinfo[2] != -1 ? retinfo[2] : 1;
             for (let i = 0; i < retinfo[3].length; ++i) {
                 const tr = this.generateTmpRegister();
-                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[3][i][1].trkey, retinfo[2] + i, tr));
+                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[3][i][1].trkey, retinfo[1].trkey, refbase + i, tr));
                 this.m_currentBlock.push(new MIRVarStore(sinfo, tr, new MIRVariable(retinfo[3][i][0])));
             }
         }
@@ -308,33 +305,34 @@ class MIRBodyEmitter {
             this.m_currentBlock.push(new MIRInvokeVirtualFunction(sinfo, retinfo[1].trkey, vresolve, args, thisInferType, rr));
            
             if (retinfo[2] === -1) {
-                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[1].trkey, 0, trgt));
+                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[0].trkey, retinfo[1].trkey, 0, trgt));
             }
             else {
                 this.m_currentBlock.push(new MIRPackSlice(sinfo, rr, retinfo[0].trkey, trgt));
             }
 
+            const refbase = retinfo[2] != -1 ? retinfo[2] : 1;
             for (let i = 0; i < retinfo[3].length; ++i) {
                 const tr = this.generateTmpRegister();
-                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[3][i][1].trkey, retinfo[2] + i, tr));
+                this.m_currentBlock.push(new MIRLoadFromEpehmeralList(sinfo, rr, retinfo[3][i][1].trkey, retinfo[1].trkey, refbase + i, tr));
                 this.m_currentBlock.push(new MIRVarStore(sinfo, tr, new MIRVariable(retinfo[3][i][0])));
             }
         }
     }
 
-    emitPrefixNot(sinfo: SourceInfo, op: string, isstrict: boolean, arg: MIRArgument, trgt: MIRTempRegister) {
+    emitPrefixNot(sinfo: SourceInfo, op: string, isstrict: boolean, arg: MIRArgument, infertype: MIRResolvedTypeKey, trgt: MIRTempRegister) {
         if(isstrict) {
-            this.m_currentBlock.push(new MIRPrefixOp(sinfo, op, arg, trgt));
+            this.m_currentBlock.push(new MIRPrefixOp(sinfo, op, arg, infertype, trgt));
         }
         else {
             const tr = this.generateTmpRegister();
             this.m_currentBlock.push(new MIRTruthyConvert(sinfo, arg, tr));
-            this.m_currentBlock.push(new MIRPrefixOp(sinfo, op, tr, trgt));
+            this.m_currentBlock.push(new MIRPrefixOp(sinfo, op, tr, infertype, trgt));
         }
     }
 
-    emitPrefixOp(sinfo: SourceInfo, op: string, arg: MIRArgument, trgt: MIRTempRegister) {
-        this.m_currentBlock.push(new MIRPrefixOp(sinfo, op, arg, trgt));
+    emitPrefixOp(sinfo: SourceInfo, op: string, arg: MIRArgument, infertype: MIRResolvedTypeKey, trgt: MIRTempRegister) {
+        this.m_currentBlock.push(new MIRPrefixOp(sinfo, op, arg, infertype, trgt));
     }
 
     emitBinOp(sinfo: SourceInfo, lhsInferType: MIRResolvedTypeKey, lhs: MIRArgument, op: string, rhsInferType: MIRResolvedTypeKey, rhs: MIRArgument, trgt: MIRTempRegister) {
@@ -638,16 +636,10 @@ class MIREmitter {
         return key;
     }
 
-    private closeConceptDecl(cpt: MIRConceptTypeDecl) {
+    private closeConceptDecl( cpt: MIRConceptTypeDecl) {
         cpt.provides.forEach((tkey) => {
             const ccdecl = this.masm.conceptDecls.get(tkey) as MIRConceptTypeDecl;
             this.closeConceptDecl(ccdecl);
-
-            ccdecl.fields.forEach((fd) => {
-                if (cpt.fields.findIndex((ff) => ff.name === fd.name) === -1) {
-                    cpt.fields.push(fd);
-                }
-            });
 
             ccdecl.vcallMap.forEach((vcall, vcname) => {
                 if (!cpt.vcallMap.has(vcname)) {
@@ -662,20 +654,12 @@ class MIREmitter {
             const ccdecl = this.masm.conceptDecls.get(tkey) as MIRConceptTypeDecl;
             this.closeConceptDecl(ccdecl);
 
-            ccdecl.fields.forEach((fd) => {
-                if (entity.fields.findIndex((ff) => ff.name === fd.name) === -1) {
-                    entity.fields.push(fd);
-                }
-            });
-
             ccdecl.vcallMap.forEach((vcall, vcname) => {
                 if (!entity.vcallMap.has(vcname)) {
                     entity.vcallMap.set(vcname, vcall);
                 }
             });
         });
-
-        entity.fields.sort((f1, f2) => f1.name.localeCompare(f2.name));
     }
 
     static generateMASM(pckge: PackageConfig, buildLevel: BuildLevel, validateLiteralStrings: boolean, functionalize: boolean, srcFiles: { relativePath: string, contents: string }[]): { masm: MIRAssembly | undefined, errors: string[] } {
@@ -703,7 +687,7 @@ class MIREmitter {
 
         ////////////////
         //Compute the assembly hash and initialize representations
-        const hash = Crypto.createHash("sha256");
+        const hash = Crypto.createHash("sha512");
         const data = [...srcFiles].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
         data.forEach((sf) => {
             hash.update(sf.relativePath);

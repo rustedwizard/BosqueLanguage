@@ -217,18 +217,24 @@ class BSQRefScope
 {
 private:
     std::vector<BSQRef*> opts;
+    bool passdirect;
 
 public:
-    BSQRefScope() : opts()
+    BSQRefScope() : opts(), passdirect(false)
+    {
+        ;
+    }
+
+    BSQRefScope(bool passdirect) : opts(), passdirect(passdirect)
     {
         ;
     }
 
     ~BSQRefScope()
     {
-        for(uint16_t i = 0; i < this->opts.size(); ++i)
+        for (uint16_t i = 0; i < this->opts.size(); ++i)
         {
-           this->opts[i]->decrement();
+            this->opts[i]->decrement();
         }
     }
 
@@ -255,7 +261,10 @@ public:
     inline void callReturnDirect(BSQRef* ptr)
     {
         ptr->increment();
-        this->opts.push_back(ptr);
+        if (!passdirect)
+        {
+            this->opts.push_back(ptr);
+        }
     }
 
     inline void processReturnChecked(Value v)
@@ -264,7 +273,10 @@ public:
         {
             BSQRef* ptr = BSQ_GET_VALUE_PTR(v, BSQRef);
             ptr->increment();
-            this->opts.push_back(ptr);
+            if (!passdirect)
+            {
+                this->opts.push_back(ptr);
+            }
         }
     }
 };
@@ -393,9 +405,10 @@ DATA_KIND_FLAG getDataKindFlag(Value v);
 
 std::string diagnostic_format(Value v);
 
+template <typename T>
 struct RCIncFunctor_BSQRef
 {
-    inline BSQRef* operator()(BSQRef* r) const { return INC_REF_DIRECT(BSQRef, r); }
+    inline T* operator()(BSQRef* r) const { return INC_REF_DIRECT(T, r); }
 };
 struct RCDecFunctor_BSQRef
 {
@@ -838,12 +851,11 @@ public:
     template <DATA_KIND_FLAG flag>
     static BSQRecord createFromUpdate(const BSQRecord* src, std::map<MIRPropertyEnum, Value>&& values)
     {
-        std::map<MIRPropertyEnum, Value> entries(move(values));
         auto fv = flag;
 
         for(auto iter = src->entries.begin(); iter != src->entries.end(); ++iter) {
             auto pos = values.lower_bound(iter->first);
-            if(pos != src->entries.cend() && pos->first != iter->first)
+            if(pos == values.cend() || pos->first != iter->first)
             {
                 values.emplace_hint(pos, *iter);
             }
